@@ -1,134 +1,558 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Bezier Blob</title>
-  <style>
-    html, body {
-      margin: 0;
-      overflow: hidden;
-      background: #111;
-      font-family: sans-serif;
-    }
-    canvas {
-      display: block;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Colorful Blob Shader</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        .label {
+            position: absolute;
+            color: white;
+            font-weight: bold;
+            font-size: 16px;
+            text-shadow: 0px 0px 3px rgba(0,0,0,0.8), 0px 0px 5px rgba(0,0,0,0.6);
+            transform: translate(-50%, -50%);
+            white-space: nowrap;
+        }
+    </style>
 </head>
 <body>
-<canvas id="canvas"></canvas>
-<script>
-class BlobShape {
-  constructor({ alpha, color, position, size, noise, title }) {
-    this.alpha = alpha;
-    this.color = color;
-    this.position = position;
-    this.size = size;
-    this.noise = noise;
-    this.title = title;
-    this.t = Math.random() * 1000;
-  }
-
-  draw(ctx, time) {
-    const { x, y } = this.position;
-    const points = 12;
-    const step = (Math.PI * 2) / points;
-    const radius = this.size;
-    const noiseLevel = this.noise;
-
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.beginPath();
-
-    const pts = [];
-    for (let i = 0; i < points; i++) {
-    const angle = i * step;
-    const noiseOffset = Math.sin(angle * 3 + this.t + time * 0.002) * noiseLevel;
-    const r = radius + noiseOffset;
-    const px = Math.cos(angle) * r;
-    const py = Math.sin(angle) * r;
-    pts.push({ x: px, y: py });
-    }
-
-    // To close loop, repeat first points at the end
-    pts.push(pts[0]);
-    pts.push(pts[1]);
-
-    ctx.moveTo(pts[0].x, pts[0].y);
-
-    // Draw bezier curves between points with control points as midpoints between neighbors
-    for (let i = 1; i < pts.length - 2; i++) {
-    const cpX = (pts[i].x + pts[i + 1].x) / 2;
-    const cpY = (pts[i].y + pts[i + 1].y) / 2;
-    ctx.quadraticCurveTo(pts[i].x, pts[i].y, cpX, cpY);
-    }
-
-    ctx.closePath();
-    ctx.globalAlpha = this.alpha;
-    ctx.fillStyle = this.color;
-    ctx.fill();
-    ctx.globalAlpha = 1.0;
-
-    // Title
-    ctx.fillStyle = "#fff";
-    ctx.font = "16px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(this.title, 0, radius + 20);
-    ctx.restore();
-
-    this.t += 0.01;
-  }
-}
-
-// Setup
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
-resizeCanvas();
-window.addEventListener("resize", resizeCanvas);
-
-const blobs = [
-  new BlobShape({
-    alpha: 0.7,
-    color: "#ff6f91",
-    position: { x: 300, y: 300 },
-    size: 80,
-    noise: 15,
-    title: "Flamingo"
-  }),
-  new BlobShape({
-    alpha: 0.6,
-    color: "#6a9fb5",
-    position: { x: 600, y: 400 },
-    size: 100,
-    noise: 25,
-    title: "Ocean"
-  }),
-  new BlobShape({
-    alpha: 0.8,
-    color: "#c3f584",
-    position: { x: 800, y: 200 },
-    size: 70,
-    noise: 10,
-    title: "Lime"
-  })
-];
-
-function resizeCanvas() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-
-function draw(time) {
-  ctx.clearRect(0, 0, canvas.width/2, canvas.height/2);
-
-  blobs.forEach(blob => {
-    blob.draw(ctx, time);
-  });
-
-  requestAnimationFrame(draw);
-}
-
-requestAnimationFrame(draw);
-</script>
+    <canvas id="canvas"></canvas>
+    <div id="overlay" class="overlay"></div>
+    
+    <script>
+        const canvas = document.getElementById('canvas');
+        const overlay = document.getElementById('overlay');
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        
+        if (!gl) {
+            alert('WebGL not supported in your browser');
+        }
+        
+        // Blob titles
+        const blobTitles = [
+            "Post Modernism",
+            "Modernism",
+            "MetaModernism",
+            "DigiAna",
+            "Escapism",
+            "Structuralism",
+            "Primitive",
+            "Existentialism"
+        ];
+        
+        // Create label elements
+        const labels = [];
+        for (let i = 0; i < 8; i++) {
+            const label = document.createElement('div');
+            label.className = 'label';
+            label.textContent = blobTitles[i];
+            overlay.appendChild(label);
+            labels.push(label);
+        }
+        
+        // Resize canvas to full window size
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            gl.viewport(0, 0, canvas.width, canvas.height);
+        }
+        
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        
+        // Vertex shader program
+        const vsSource = `
+            attribute vec4 aVertexPosition;
+            
+            void main() {
+                gl_Position = aVertexPosition;
+            }
+        `;
+        
+        // Fragment shader program
+        const fsSource = `
+            precision mediump float;
+            
+            uniform vec2 uResolution;
+            uniform float uTime;
+            
+            // Noise functions from https://gist.github.com/patriciogonzalezvivo/670c22f3966e662d2f83
+            vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+            vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+            vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
+            
+            // Perlin noise
+            float snoise(vec2 v) {
+                const vec4 C = vec4(0.211324865405187, 0.366025403784439,
+                                    -0.577350269189626, 0.024390243902439);
+                vec2 i  = floor(v + dot(v, C.yy));
+                vec2 x0 = v -   i + dot(i, C.xx);
+                vec2 i1;
+                i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+                vec4 x12 = x0.xyxy + C.xxzz;
+                x12.xy -= i1;
+                i = mod289(i);
+                vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0))
+                    + i.x + vec3(0.0, i1.x, 1.0));
+                vec3 m = max(0.5 - vec3(dot(x0, x0), dot(x12.xy, x12.xy),
+                    dot(x12.zw, x12.zw)), 0.0);
+                m = m*m;
+                m = m*m;
+                vec3 x = 2.0 * fract(p * C.www) - 1.0;
+                vec3 h = abs(x) - 0.5;
+                vec3 ox = floor(x + 0.5);
+                vec3 a0 = x - ox;
+                m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
+                vec3 g;
+                g.x = a0.x * x0.x + h.x * x0.y;
+                g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+                return 130.0 * dot(m, g);
+            }
+            
+            float blob(vec2 st, vec2 center, float size) {
+                float dist = length(st - center);
+                // 15% less blurred by reducing the smoothstep range from 0.3 to 0.255
+                return smoothstep(dist, dist + 0.255, size);
+            }
+            
+            void main() {
+                vec2 st = gl_FragCoord.xy / uResolution.xy;
+                st.x *= uResolution.x / uResolution.y;
+                
+                // Define blob colors
+                vec3 color1 = vec3(0.95, 0.2, 0.1);   // Red
+                vec3 color2 = vec3(0.2, 0.5, 0.95);   // Blue
+                vec3 color3 = vec3(0.9, 0.75, 0.1);   // Yellow
+                vec3 color4 = vec3(0.2, 0.8, 0.5);    // Green
+                vec3 color5 = vec3(0.8, 0.3, 0.9);    // Purple
+                vec3 color6 = vec3(0.95, 0.5, 0.2);   // Orange
+                vec3 color7 = vec3(0.4, 0.9, 0.8);    // Teal
+                vec3 color8 = vec3(0.7, 0.25, 0.5);   // Magenta
+                
+                // Create blob movements with Perlin noise
+                float speed = 0.2;
+                float noiseScale = 0.6;
+                
+                vec2 pos1 = vec2(
+                    0.5 + 0.3 * snoise(vec2(uTime * speed * 0.7, 1.0)),
+                    0.5 + 0.3 * snoise(vec2(uTime * speed * 0.6, 100.0))
+                );
+                
+                vec2 pos2 = vec2(
+                    0.5 + 0.35 * snoise(vec2(uTime * speed * 0.5, 20.0)),
+                    0.5 + 0.35 * snoise(vec2(uTime * speed * 0.4, 120.0))
+                );
+                
+                vec2 pos3 = vec2(
+                    0.5 + 0.4 * snoise(vec2(uTime * speed * 0.3, 40.0)),
+                    0.5 + 0.4 * snoise(vec2(uTime * speed * 0.5, 140.0))
+                );
+                
+                vec2 pos4 = vec2(
+                    0.5 + 0.25 * snoise(vec2(uTime * speed * 0.6, 60.0)),
+                    0.5 + 0.25 * snoise(vec2(uTime * speed * 0.3, 160.0))
+                );
+                
+                vec2 pos5 = vec2(
+                    0.5 + 0.3 * snoise(vec2(uTime * speed * 0.4, 80.0)),
+                    0.5 + 0.3 * snoise(vec2(uTime * speed * 0.7, 180.0))
+                );
+                
+                vec2 pos6 = vec2(
+                    0.5 + 0.35 * snoise(vec2(uTime * speed * 0.7, 200.0)),
+                    0.5 + 0.35 * snoise(vec2(uTime * speed * 0.4, 10.0))
+                );
+                
+                vec2 pos7 = vec2(
+                    0.5 + 0.28 * snoise(vec2(uTime * speed * 0.5, 220.0)),
+                    0.5 + 0.28 * snoise(vec2(uTime * speed * 0.6, 30.0))
+                );
+                
+                vec2 pos8 = vec2(
+                    0.5 + 0.32 * snoise(vec2(uTime * speed * 0.65, 240.0)),
+                    0.5 + 0.32 * snoise(vec2(uTime * speed * 0.55, 50.0))
+                );
+                
+                // Variable blob sizes with time
+                float size1 = 0.25 + 0.05 * sin(uTime * 0.4);
+                float size2 = 0.28 + 0.04 * sin(uTime * 0.3 + 1.0);
+                float size3 = 0.22 + 0.06 * sin(uTime * 0.5 + 2.0);
+                float size4 = 0.26 + 0.03 * sin(uTime * 0.6 + 3.0);
+                float size5 = 0.27 + 0.05 * sin(uTime * 0.45 + 4.0);
+                float size6 = 0.23 + 0.04 * sin(uTime * 0.35 + 5.0);
+                float size7 = 0.25 + 0.06 * sin(uTime * 0.55 + 6.0);
+                float size8 = 0.24 + 0.05 * sin(uTime * 0.5 + 7.0);
+                
+                // Calculate blob values
+                float b1 = blob(st, pos1, size1);
+                float b2 = blob(st, pos2, size2);
+                float b3 = blob(st, pos3, size3);
+                float b4 = blob(st, pos4, size4);
+                float b5 = blob(st, pos5, size5);
+                float b6 = blob(st, pos6, size6);
+                float b7 = blob(st, pos7, size7);
+                float b8 = blob(st, pos8, size8);
+                
+                // Mix colors with transparency for overlapping
+                vec3 color = vec3(0.0);
+                
+                // Add each blob with alpha blending
+                vec4 result = vec4(0.0, 0.0, 0.0, 1.0);
+                
+                // Apply colors with transparency
+                result.rgb = mix(result.rgb, color1, b1 * 0.6);
+                result.rgb = mix(result.rgb, color2, b2 * 0.6);
+                result.rgb = mix(result.rgb, color3, b3 * 0.6);
+                result.rgb = mix(result.rgb, color4, b4 * 0.6);
+                result.rgb = mix(result.rgb, color5, b5 * 0.6);
+                result.rgb = mix(result.rgb, color6, b6 * 0.6);
+                result.rgb = mix(result.rgb, color7, b7 * 0.6);
+                result.rgb = mix(result.rgb, color8, b8 * 0.6);
+                
+                gl_FragColor = result;
+            }
+        `;
+        
+        // Initialize shader program
+        function initShaderProgram(gl, vsSource, fsSource) {
+            const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
+            const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
+            
+            const shaderProgram = gl.createProgram();
+            gl.attachShader(shaderProgram, vertexShader);
+            gl.attachShader(shaderProgram, fragmentShader);
+            gl.linkProgram(shaderProgram);
+            
+            if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+                console.error('Unable to initialize the shader program: ' + gl.getProgramInfoLog(shaderProgram));
+                return null;
+            }
+            
+            return shaderProgram;
+        }
+        
+        // Create shader
+        function loadShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error('An error occurred compiling the shaders: ' + gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            
+            return shader;
+        }
+        
+        // Initialize the shader program
+        const shaderProgram = initShaderProgram(gl, vsSource, fsSource);
+        
+        // Get attribute and uniform locations
+        const programInfo = {
+            program: shaderProgram,
+            attribLocations: {
+                vertexPosition: gl.getAttribLocation(shaderProgram, 'aVertexPosition'),
+            },
+            uniformLocations: {
+                resolution: gl.getUniformLocation(shaderProgram, 'uResolution'),
+                time: gl.getUniformLocation(shaderProgram, 'uTime'),
+            },
+        };
+        
+        // Initialize buffers
+        function initBuffers(gl) {
+            const positionBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            
+            // Create a square (two triangles) that covers the entire canvas
+            const positions = [
+                -1.0, -1.0,
+                 1.0, -1.0,
+                -1.0,  1.0,
+                 1.0,  1.0,
+            ];
+            
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+            
+            return {
+                position: positionBuffer,
+            };
+        }
+        
+        const buffers = initBuffers(gl);
+        
+        // Update the labels to follow the blobs
+        function updateLabels(positions) {
+            positions.forEach((pos, i) => {
+                // Convert shader coordinates to screen coordinates
+                const screenX = pos.x * canvas.width;
+                const screenY = (1 - pos.y) * canvas.height;
+                
+                // Update label position
+                labels[i].style.left = `${screenX}px`;
+                labels[i].style.top = `${screenY}px`;
+            });
+        }
+        
+        // Draw the scene
+        function drawScene(gl, programInfo, buffers, timestamp) {
+            gl.clearColor(0.0, 0.0, 0.0, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            
+            // Set up position attribute
+            {
+                const numComponents = 2;
+                const type = gl.FLOAT;
+                const normalize = false;
+                const stride = 0;
+                const offset = 0;
+                gl.bindBuffer(gl.ARRAY_BUFFER, buffers.position);
+                gl.vertexAttribPointer(
+                    programInfo.attribLocations.vertexPosition,
+                    numComponents,
+                    type,
+                    normalize,
+                    stride,
+                    offset);
+                gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
+            }
+            
+            // Use the shader program
+            gl.useProgram(programInfo.program);
+            
+            // Set the uniforms
+            gl.uniform2f(programInfo.uniformLocations.resolution, canvas.width, canvas.height);
+            
+            const time = timestamp * 0.001;
+            gl.uniform1f(programInfo.uniformLocations.time, time);
+            
+            // Calculate blob positions for labels
+            const speed = 0.2;
+            const blobPositions = [
+                {
+                    x: 0.5 + 0.3 * snoise([time * speed * 0.7, 1.0]),
+                    y: 0.5 + 0.3 * snoise([time * speed * 0.6, 100.0])
+                },
+                {
+                    x: 0.5 + 0.35 * snoise([time * speed * 0.5, 20.0]),
+                    y: 0.5 + 0.35 * snoise([time * speed * 0.4, 120.0])
+                },
+                {
+                    x: 0.5 + 0.4 * snoise([time * speed * 0.3, 40.0]),
+                    y: 0.5 + 0.4 * snoise([time * speed * 0.5, 140.0])
+                },
+                {
+                    x: 0.5 + 0.25 * snoise([time * speed * 0.6, 60.0]),
+                    y: 0.5 + 0.25 * snoise([time * speed * 0.3, 160.0])
+                },
+                {
+                    x: 0.5 + 0.3 * snoise([time * speed * 0.4, 80.0]),
+                    y: 0.5 + 0.3 * snoise([time * speed * 0.7, 180.0])
+                },
+                {
+                    x: 0.5 + 0.35 * snoise([time * speed * 0.7, 200.0]),
+                    y: 0.5 + 0.35 * snoise([time * speed * 0.4, 10.0])
+                },
+                {
+                    x: 0.5 + 0.28 * snoise([time * speed * 0.5, 220.0]),
+                    y: 0.5 + 0.28 * snoise([time * speed * 0.6, 30.0])
+                },
+                {
+                    x: 0.5 + 0.32 * snoise([time * speed * 0.65, 240.0]),
+                    y: 0.5 + 0.32 * snoise([time * speed * 0.55, 50.0])
+                }
+            ];
+            
+            // Update labels
+            updateLabels(blobPositions);
+            
+            // Draw
+            const offset = 0;
+            const vertexCount = 4;
+            gl.drawArrays(gl.TRIANGLE_STRIP, offset, vertexCount);
+            
+            // Request the next frame
+            requestAnimationFrame(function(timestamp) {
+                drawScene(gl, programInfo, buffers, timestamp);
+            });
+        }
+        
+        // JavaScript implementation of Perlin noise (simplified for labels)
+        function snoise(vec2) {
+            // Very simplified version for label positioning
+            // This doesn't need to match the shader exactly, just approximate the movement
+            const x = Math.sin(vec2[0] * 1.5) * Math.cos(vec2[1] * 2.1);
+            const y = Math.cos(vec2[0] * 1.7) * Math.sin(vec2[1] * 2.3);
+            return x * y;
+        }
+        
+        // Start the animation loop
+        requestAnimationFrame(function(timestamp) {
+            drawScene(gl, programInfo, buffers, timestamp);
+        });
+    </script>
+</body>
+</html>
+                float b7 = blob(st, pos7, size7);
+                float b8 = blob(st, pos8, size8);
+                
+                // Mix colors with transparency for overlapping
+                vec3 color = vec3(0.0);
+                
+                // Add each blob with alpha blending
+                vec4 result = vec4(0.0, 0.0, 0.0, 1.0);
+                
+                // Apply colors with transparency
+                result.rgb = mix(result.rgb, color1, b1 * 0.6);
+                result.rgb = mix(result.rgb, color2, b2 * 0.6);
+                result.rgb = mix(result.rgb, color3, b3 * 0.6);
+                result.rgb = mix(result.rgb, color4, b4 * 0.6);
+                result.rgb = mix(result.rgb, color5, b5 * 0.6);
+                result.rgb = mix(result.rgb, color6, b6 * 0.6);
+                result.rgb = mix(result.rgb, color7, b7 * 0.6);
+                result.rgb = mix(result.rgb, color8, b8 * 0.6);
+                
+                gl_FragColor = result;
+            }
+        `;
+        
+        // Initialize shader program
+        function initShaderProgram(gl, vsSource, fsSource) {
+            const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
+            const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
+            
+            const shaderProgram = gl.createProgram();
+            gl.attachShader(shaderProgram, vertexShader);
+            gl.attachShader(shaderProgram, fragmentShader);
+            gl.linkProgram(shaderProgram);
+            
+            if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+                console.error('Unable to initialize the shader program: ' + gl.getProgramInfoLog(shaderProgram));
+                return null;
+            }
+            
+            return shaderProgram;
+        }
+        
+        // Create shader
+        function loadShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error('An error occurred compiling the shaders: ' + gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            
+            return shader;
+        }
+        
+        // Initialize the shader program
+        const shaderProgram = initShaderProgram(gl, vsSource, fsSource);
+        
+        // Get attribute and uniform locations
+        const programInfo = {
+            program: shaderProgram,
+            attribLocations: {
+                vertexPosition: gl.getAttribLocation(shaderProgram, 'aVertexPosition'),
+            },
+            uniformLocations: {
+                resolution: gl.getUniformLocation(shaderProgram, 'uResolution'),
+                time: gl.getUniformLocation(shaderProgram, 'uTime'),
+            },
+        };
+        
+        // Initialize buffers
+        function initBuffers(gl) {
+            const positionBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            
+            // Create a square (two triangles) that covers the entire canvas
+            const positions = [
+                -1.0, -1.0,
+                 1.0, -1.0,
+                -1.0,  1.0,
+                 1.0,  1.0,
+            ];
+            
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+            
+            return {
+                position: positionBuffer,
+            };
+        }
+        
+        const buffers = initBuffers(gl);
+        
+        // Draw the scene
+        function drawScene(gl, programInfo, buffers, timestamp) {
+            gl.clearColor(0.0, 0.0, 0.0, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            
+            // Set up position attribute
+            {
+                const numComponents = 2;
+                const type = gl.FLOAT;
+                const normalize = false;
+                const stride = 0;
+                const offset = 0;
+                gl.bindBuffer(gl.ARRAY_BUFFER, buffers.position);
+                gl.vertexAttribPointer(
+                    programInfo.attribLocations.vertexPosition,
+                    numComponents,
+                    type,
+                    normalize,
+                    stride,
+                    offset);
+                gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
+            }
+            
+            // Use the shader program
+            gl.useProgram(programInfo.program);
+            
+            // Set the uniforms
+            gl.uniform2f(programInfo.uniformLocations.resolution, canvas.width, canvas.height);
+            gl.uniform1f(programInfo.uniformLocations.time, timestamp * 0.001);
+            
+            // Draw
+            const offset = 0;
+            const vertexCount = 4;
+            gl.drawArrays(gl.TRIANGLE_STRIP, offset, vertexCount);
+            
+            // Request the next frame
+            requestAnimationFrame(function(timestamp) {
+                drawScene(gl, programInfo, buffers, timestamp);
+            });
+        }
+        
+        // Start the animation loop
+        requestAnimationFrame(function(timestamp) {
+            drawScene(gl, programInfo, buffers, timestamp);
+        });
+    </script>
 </body>
 </html>
