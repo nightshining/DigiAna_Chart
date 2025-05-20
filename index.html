@@ -40,18 +40,27 @@ class BlobShape {
     ctx.translate(x, y);
     ctx.beginPath();
 
-    for (let i = 0; i <= points; i++) {
-      const angle = i * step;
-      const noiseOffset = Math.sin(angle * 3 + this.t + time * 0.002) * noiseLevel;
-      const r = radius + noiseOffset;
-      const px = Math.cos(angle) * r;
-      const py = Math.sin(angle) * r;
+    const pts = [];
+    for (let i = 0; i < points; i++) {
+    const angle = i * step;
+    const noiseOffset = Math.sin(angle * 3 + this.t + time * 0.002) * noiseLevel;
+    const r = radius + noiseOffset;
+    const px = Math.cos(angle) * r;
+    const py = Math.sin(angle) * r;
+    pts.push({ x: px, y: py });
+    }
 
-      if (i === 0) {
-        ctx.moveTo(px, py);
-      } else {
-        ctx.lineTo(px, py);
-      }
+    // To close loop, repeat first points at the end
+    pts.push(pts[0]);
+    pts.push(pts[1]);
+
+    ctx.moveTo(pts[0].x, pts[0].y);
+
+    // Draw bezier curves between points with control points as midpoints between neighbors
+    for (let i = 1; i < pts.length - 2; i++) {
+    const cpX = (pts[i].x + pts[i + 1].x) / 2;
+    const cpY = (pts[i].y + pts[i + 1].y) / 2;
+    ctx.quadraticCurveTo(pts[i].x, pts[i].y, cpX, cpY);
     }
 
     ctx.closePath();
